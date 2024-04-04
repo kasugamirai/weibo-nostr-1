@@ -1,52 +1,36 @@
-use std::fmt;
+use reqwest::Error;
+use rss::Channel;
 
-const BASE_URL: &str = "https://weibrss.oneoo.info";
+pub async fn fetch_user_info(url: &str) -> Result<(String, String), Error> {
+    let response = reqwest::get(url).await?.bytes().await?;
+    let channel = Channel::read_from(&response[..]).unwrap();
 
-pub enum Error {
-    Reqwest(reqwest::Error),
-    HttpError(reqwest::StatusCode),
+    let title = channel.title().to_string();
+    let image_url = channel
+        .image()
+        .map(|image| image.url().to_string())
+        .unwrap_or("No image URL".to_string());
+
+    Ok((title, image_url))
 }
 
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Error::Reqwest(e) => write!(f, "Reqwest error: {}", e),
-            Error::HttpError(e) => write!(f, "HTTP error: {}", e),
-        }
-    }
-}
+pub async fn fetch_messages(url: &str) -> Result<Vec<(String, String, String)>, Error> {
+    let response = reqwest::get(url).await?.bytes().await?;
+    let channel = Channel::read_from(&response[..]).unwrap();
 
-impl From<reqwest::Error> for Error {
-    fn from(e: reqwest::Error) -> Self {
-        Error::Reqwest(e)
-    }
-}
-impl From<reqwest::StatusCode> for Error {
-    fn from(e: reqwest::StatusCode) -> Self {
-        Error::HttpError(e)
-    }
-}
+    let messages = channel
+        .items()
+        .into_iter()
+        .map(|item| {
+            let title = item.title().unwrap_or("No title").to_string();
+            let link = item.link().unwrap_or("No link").to_string();
+            let description = item.description().unwrap_or("No description").to_string();
 
-pub struct WeiboUid {
-    base_url: String,
-}
+            (title, link, description)
+        })
+        .collect();
 
-impl WeiboUid {
-    pub fn new(base_url: String) -> Self {
-        Self { base_url }
-    }
-
-    pub async fn get_weibo_uid(&self, domain: &str) -> Result<String, Error> {
-        let url = format!("{}/convert?domain={}", self.base_url, domain);
-        let response = reqwest::get(&url).await?;
-
-        if response.status().is_success() {
-            let body = response.text().await?;
-            Ok(body)
-        } else {
-            Err(Error::HttpError(reqwest::StatusCode::INTERNAL_SERVER_ERROR))
-        }
-    }
+    Ok(messages)
 }
 
 #[cfg(test)]
@@ -54,16 +38,32 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_get_weibo_uid() {
-        let fetcher = WeiboUid::new(BASE_URL.to_string());
-        let result = fetcher.get_weibo_uid("dmmusic").await;
+    async fn test_fetch_user_info() {
+        let url = "https://rsshub.app/weibo/user/1883568433";
+        let result = fetch_user_info(url).await;
 
         match result {
-            Ok(body) => {
-                assert!(body.contains("1883568433"));
+            Ok((title, image_url)) => {
+                assert!(!title.is_empty());
+                assert!(!image_url.is_empty());
             }
             Err(e) => {
-                panic!("Failed to get Weibo UID: {}", e);
+                panic!("Failed to fetch user info: {}", e);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_fetch_messages() {
+        let url = "https://rsshub.app/weibo/user/1883568433";
+        let result = fetch_messages(url).await;
+
+        match result {
+            Ok(messages) => {
+                assert!(!messages.is_empty());
+            }
+            Err(e) => {
+                panic!("Failed to fetch messages: {}", e);
             }
         }
     }
