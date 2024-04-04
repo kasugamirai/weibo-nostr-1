@@ -1,4 +1,4 @@
-workspace = { members = ["nostr_wrapper", "data"] }
+workspace = { members = ["nostr_db"] }
 [package]
 name = "weibo-nostr"
 version = "0.1.0"
